@@ -2755,6 +2755,13 @@ fn organize_grid(
                 painter.line_segment([pos2(x, row.min + 10.0), pos2(x, row.max - 10.0)], Stroke::new(3.0, t.accent));
             }
         }
+        // A "+" that follows the pointer.
+        if let Some(p) = pointer {
+            let at = p + vec2(16.0, 16.0);
+            painter.circle_filled(at, 9.0, t.accent);
+            painter.line_segment([at - vec2(4.0, 0.0), at + vec2(4.0, 0.0)], Stroke::new(1.5, Color32::WHITE));
+            painter.line_segment([at - vec2(0.0, 4.0), at + vec2(0.0, 4.0)], Stroke::new(1.5, Color32::WHITE));
+        }
     }
     view.auto_scroll.paint(ui, viewport);
     let s = THUMB_W * ppp / info.pages.iter().map(|p| p.width).fold(1.0, f32::max);

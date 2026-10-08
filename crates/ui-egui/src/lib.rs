@@ -29,6 +29,7 @@ mod create_multiple_ui;
 mod create_ui;
 mod credits;
 mod crop;
+mod drag_pointer;
 mod export_ui;
 mod js_ui;
 mod marks_ui;
@@ -833,7 +834,9 @@ impl PdfCraftApp {
             }
         }
         if !files.is_empty() {
-            // The pointer's place often arrives only with the first move after the drop.
+            // Where there is no telling where the pointer is during the drag, its place arrives
+            // with the first move after the drop.
+            ctx.request_repaint();
             self.grid_drop = Some(GridDrop { doc: id, files, deadline: ctx.input(|i| i.time) + 1.0 });
         }
         Vec::new()
@@ -1480,6 +1483,19 @@ impl PdfCraftApp {
 }
 
 impl eframe::App for PdfCraftApp {
+    /// While files are dragged over the window the system sends no pointer moves, so egui
+    /// would keep the place the pointer entered at: tell it where the pointer really is, so the
+    /// page grid can show (and use) the gap under it.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if raw.hovered_files.is_empty() && raw.dropped_files.is_empty() {
+            return;
+        }
+        if let Some(pos) = drag_pointer::in_window(ctx) {
+            raw.events.push(egui::Event::PointerMoved(pos));
+        }
+        ctx.request_repaint();
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         storage.set_string("pdfcraft", self.persist());
     }
@@ -1507,13 +1523,15 @@ impl eframe::App for PdfCraftApp {
             }
         }
         self.sync_theme(ctx);
+        // Before taking this frame's drop: the grid must be drawn once with the pointer where
+        // the files were let go before the gap is read.
+        self.finish_grid_drop(ctx);
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         #[cfg(not(target_arch = "wasm32"))]
         let dropped = self.drop_on_grid(dropped, ctx);
         for f in dropped {
             self.open_dropped(f, ctx);
         }
-        self.finish_grid_drop(ctx);
         let arrived: Vec<(String, Vec<u8>)> = self.inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
         for (name, bytes) in arrived {
             if let Err(e) = self.open_bytes(&name, None, bytes) {

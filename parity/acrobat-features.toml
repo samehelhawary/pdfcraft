@@ -2687,7 +2687,7 @@ status = "partial"
 commands = ["page.organize"]
 tools = []
 evidence = ["crates/ui-egui/tests/editing.rs::files_dropped_between_pages_are_inserted_there", "crates/ui-egui/tests/editing.rs::files_dropped_before_the_pointer_is_known_wait_for_it", "crates/ui-egui/tests/editing.rs::files_dropped_outside_the_page_grid_still_open_as_documents"]
-notes = "Desktop: PDFs, images and .txt files dropped on the Organize page grid are inserted at the gap under the pointer, in order, and selected (elsewhere a dropped file still opens as a document). Where the system doesn't report the pointer during the drag (macOS), the grid is outlined instead of showing the gap, and the files go to the gap the pointer is at right after the drop, or to the end if it doesn't show up within a second. Missing: the web build (dropped files open as documents), a live gap indicator on macOS; not yet checked with a real drag from each system's file manager."
+notes = "Desktop: PDFs, images and .txt files dropped on the Organize page grid are inserted at the gap under the pointer, in order, and selected (elsewhere a dropped file still opens as a document). While the files hover, a bar at the gap and a + badge follow the pointer; on macOS the pointer is read from AppKit, because the windowing layer sends no moves during a file drag. Missing: on Windows and Linux there is no live position, so the grid is only outlined and the files go to the gap the pointer is at right after the drop (or the end after a second); the web build (dropped files open as documents). Covered by simulated drop events; a real drag from Finder is not in the automated tests."
 
 [[feature]]
 id = "organize.extract-pages"
