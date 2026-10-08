@@ -17,6 +17,18 @@ pub enum FilePurpose {
     ReplacePages,
     /// Scan & OCR ▸ Recognize text in multiple files.
     Ocr,
+    /// Create a PDF ▸ Multiple files (PDFs, images and text).
+    CreateMultiple,
+}
+
+/// The picker for `purpose`: PDFs, and for Create also what it converts.
+fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
+    let dialog = rfd::AsyncFileDialog::new();
+    if purpose != FilePurpose::CreateMultiple {
+        return dialog.add_filter("PDF", &["pdf"]);
+    }
+    let all: Vec<&str> = std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).collect();
+    dialog.add_filter(tl!("PDF, images and text"), &all).add_filter("PDF", &["pdf"])
 }
 
 /// The Replace Pages dialog: the chosen file and the ranges (1-based, inclusive).
@@ -130,6 +142,11 @@ impl PdfCraftApp {
         self.pick_files(FilePurpose::Combine, true);
     }
 
+    /// Create a PDF ▸ Multiple files: ask for the files to convert.
+    pub fn create_multiple_dialog(&mut self) {
+        self.pick_files(FilePurpose::CreateMultiple, true);
+    }
+
     /// Scan & OCR ▸ Recognize text ▸ In multiple files: ask for the PDFs.
     pub fn ocr_files_dialog(&mut self) {
         self.pick_files(FilePurpose::Ocr, true);
@@ -146,7 +163,7 @@ impl PdfCraftApp {
 
     fn pick_files(&mut self, purpose: FilePurpose, multiple: bool) {
         #[cfg(not(target_arch = "wasm32"))]
-        self.pick(crate::pickers::PickFor::Files(purpose), rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]), multiple);
+        self.pick(crate::pickers::PickFor::Files(purpose), files_picker(purpose), multiple);
         #[cfg(target_arch = "wasm32")]
         {
             let requests = self.requests.clone();
@@ -155,7 +172,7 @@ impl PdfCraftApp {
             // the browser has finished reading the file (#167).
             let request = self.file_request(purpose, Vec::new());
             wasm_bindgen_futures::spawn_local(async move {
-                let dialog = rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]);
+                let dialog = files_picker(purpose);
                 let handles = if multiple { dialog.pick_files().await.unwrap_or_default() } else { dialog.pick_file().await.into_iter().collect() };
                 let mut files = Vec::new();
                 for h in handles {
@@ -248,6 +265,7 @@ impl PdfCraftApp {
                 }
             }
             FilePurpose::Ocr => self.ocr_files(files),
+            FilePurpose::CreateMultiple => self.stage_create_multiple(files),
         }
     }
 

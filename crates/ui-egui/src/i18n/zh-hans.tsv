@@ -67,6 +67,7 @@
 	New blank PDF	新建空白 PDF
 	Create PDF from file…	从文件创建 PDF…
 	Create PDF from images…	从图像创建 PDF…
+	Create PDF from multiple files…	从多个文件创建 PDF…
 	Create PDF from clipboard	从剪贴板创建 PDF
 	Combine files…	合并文件…
 	Save	保存
@@ -1942,3 +1943,18 @@
 	XFA form: its fields and its XFA data are kept in step, so other viewers show what you fill in.	XFA 表单：字段与 XFA 数据保持同步，以便其他阅读器显示您填写的内容。
 @plural	{n} page|{n} pages	{n} 页
 @plural	{n} field|{n} fields	{n} 个字段
+	Create PDF from multiple files	从多个文件创建 PDF
+	Combine into one PDF	合并为一个 PDF
+	Create a separate PDF for each file	为每个文件创建单独的 PDF
+	Each image or text file becomes its own PDF. Files that are already PDFs are skipped.	每个图像或文本文件都会成为一个单独的 PDF。已经是 PDF 的文件将被跳过。
+	Add at least one file	请至少添加一个文件
+	Created a PDF from {n} files	已从 {n} 个文件创建 PDF
+	Choose a folder for the new PDFs	选择新 PDF 的保存文件夹
+	Created {n} PDFs	已创建 {n} 个 PDF
+	PDF, images and text	PDF、图像和文本
+	You can add up to {n} files at once	一次最多可添加 {n} 个文件
+	Couldn't add {e}	无法添加 {e}
+	Those files are already PDFs	这些文件已经是 PDF
+	Created 1 PDF in {dir}	已在 {dir} 中创建 1 个 PDF
+	Created {n} PDFs in {dir}	已在 {dir} 中创建 {n} 个 PDF
+	Created {n} PDFs in {dir}; failed: {failed}	已在 {dir} 中创建 {n} 个 PDF；失败：{failed}

@@ -30,6 +30,7 @@
 	New blank PDF	空白の PDF を作成
 	Create PDF from file…	ファイルから PDF を作成…
 	Create PDF from images…	画像から PDF を作成…
+	Create PDF from multiple files…	複数のファイルから PDF を作成…
 	Create PDF from clipboard	クリップボードから PDF を作成
 	Combine files…	ファイルを結合…
 	Save	保存
@@ -1875,3 +1876,18 @@
 	Page display: {layout}	ページ表示：{layout}
 	Fit to width scrolling	幅に合わせてスクロール
 	Fit one full page	1ページずつ全体を表示
+	Create PDF from multiple files	複数のファイルから PDF を作成
+	Combine into one PDF	1 つの PDF に結合
+	Create a separate PDF for each file	ファイルごとに別々の PDF を作成
+	Each image or text file becomes its own PDF. Files that are already PDFs are skipped.	画像やテキストファイルはそれぞれ 1 つの PDF になります。すでに PDF のファイルはスキップされます。
+	Add at least one file	ファイルを 1 つ以上追加してください
+	Created a PDF from {n} files	{n} 個のファイルから PDF を作成しました
+	Choose a folder for the new PDFs	新しい PDF の保存先フォルダーを選択
+	Created {n} PDFs	{n} 個の PDF を作成しました
+	PDF, images and text	PDF、画像、テキスト
+	You can add up to {n} files at once	一度に追加できるファイルは {n} 個までです
+	Couldn't add {e}	追加できませんでした: {e}
+	Those files are already PDFs	これらのファイルはすでに PDF です
+	Created 1 PDF in {dir}	{dir} に PDF を 1 個作成しました
+	Created {n} PDFs in {dir}	{dir} に PDF を {n} 個作成しました
+	Created {n} PDFs in {dir}; failed: {failed}	{dir} に PDF を {n} 個作成しました。失敗: {failed}

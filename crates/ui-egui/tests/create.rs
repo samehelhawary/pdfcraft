@@ -132,3 +132,73 @@ fn the_pdf_optimizer_dialog_saves_an_optimized_copy() {
     assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF-"));
     assert_eq!(h.state().dialog, None);
 }
+
+fn mixed_files(app: &PdfCraftApp) -> Vec<(String, Vec<u8>)> {
+    let pdf = app.session.create_from_text("a", "from a pdf").unwrap();
+    vec![
+        ("notes.txt".into(), b"from text".to_vec()),
+        ("report.docx".into(), b"PK\x03\x04".to_vec()),
+        ("a.pdf".into(), pdf.to_vec()),
+        ("photo.png".into(), png()),
+    ]
+}
+
+#[test]
+fn multiple_files_dialog_combines_mixed_files_in_the_listed_order() {
+    use egui_kittest::{Harness, kittest::Queryable};
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 720.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        let files = mixed_files(&app);
+        app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, files);
+        app
+    });
+    h.run_steps(3);
+    h.get_by_label("Create PDF from multiple files");
+    h.get_by_label("Combine into one PDF");
+    let names: Vec<&str> = h.state().create_multiple.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["notes.txt", "a.pdf", "photo.png"], "the Word file can't be converted and is left out");
+    if let Ok(path) = std::env::var("PDFCRAFT_CREATE_MULTIPLE_SHOT") {
+        h.render().unwrap().save(path).unwrap();
+    }
+    // The image first.
+    h.get_all_by_label("Move up").last().unwrap().click();
+    h.run_steps(2);
+    h.get_all_by_label("Move up").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Create").click();
+    h.run_steps(3);
+    let app = h.state();
+    assert_eq!(app.views.len(), 1);
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.name, "Combined.pdf");
+    assert!(doc.dirty && doc.path.is_none(), "unsaved until the user saves it");
+    assert_eq!(doc.info.pages.len(), 3);
+    assert_eq!(doc.info.outline.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), ["photo", "notes", "a"]);
+    assert!(app.create_multiple.files.is_empty());
+}
+
+#[test]
+fn multiple_files_become_separate_pdfs_without_overwriting() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-create-multiple-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("notes.pdf"), b"mine").unwrap();
+    let mut app = PdfCraftApp::new();
+    app.export_dir_override = Some(dir.to_string_lossy().into_owned());
+    let files = mixed_files(&app);
+    app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, files);
+    app.create_multiple.separate = true;
+    app.finish_create_multiple();
+    assert_eq!(std::fs::read(dir.join("notes.pdf")).unwrap(), b"mine", "an existing file is kept");
+    assert!(std::fs::read(dir.join("notes (2).pdf")).unwrap().starts_with(b"%PDF-"));
+    assert!(std::fs::read(dir.join("photo.pdf")).unwrap().starts_with(b"%PDF-"));
+    assert!(!dir.join("a.pdf").exists(), "a file that is already a PDF is skipped");
+    assert!(app.views.is_empty() && app.create_multiple.files.is_empty());
+    // Only PDFs: nothing to make, and nothing is written.
+    let pdf = app.session.create_from_text("a", "x").unwrap().to_vec();
+    app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, vec![("a.pdf".into(), pdf)]);
+    app.create_multiple.separate = true;
+    app.finish_create_multiple();
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);
+}

@@ -26,6 +26,7 @@
 	New blank PDF	新增空白 PDF
 	Create PDF from file…	從檔案建立 PDF…
 	Create PDF from images…	從圖片建立 PDF…
+	Create PDF from multiple files…	從多個檔案建立 PDF…
 	Create PDF from clipboard	從剪貼簿建立 PDF
 	Combine files…	合併檔案…
 	Save	儲存
@@ -1868,3 +1869,18 @@
 	Page display: {layout}	頁面顯示：{layout}
 	Fit to width scrolling	符合寬度連續捲動
 	Fit one full page	單頁完整顯示
+	Create PDF from multiple files	從多個檔案建立 PDF
+	Combine into one PDF	合併為一個 PDF
+	Create a separate PDF for each file	為每個檔案建立個別的 PDF
+	Each image or text file becomes its own PDF. Files that are already PDFs are skipped.	每個圖片或文字檔都會成為一個獨立的 PDF。已經是 PDF 的檔案會略過。
+	Add at least one file	請至少加入一個檔案
+	Created a PDF from {n} files	已從 {n} 個檔案建立 PDF
+	Choose a folder for the new PDFs	選擇新 PDF 的儲存資料夾
+	Created {n} PDFs	已建立 {n} 個 PDF
+	PDF, images and text	PDF、圖片和文字
+	You can add up to {n} files at once	一次最多可加入 {n} 個檔案
+	Couldn't add {e}	無法加入 {e}
+	Those files are already PDFs	這些檔案已經是 PDF
+	Created 1 PDF in {dir}	已在 {dir} 中建立 1 個 PDF
+	Created {n} PDFs in {dir}	已在 {dir} 中建立 {n} 個 PDF
+	Created {n} PDFs in {dir}; failed: {failed}	已在 {dir} 中建立 {n} 個 PDF；失敗：{failed}

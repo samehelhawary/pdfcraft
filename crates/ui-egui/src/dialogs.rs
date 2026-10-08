@@ -55,6 +55,7 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let mut ocr_now = false;
     let mut compare_now = false;
     let mut combine_now = false;
+    let mut create_multiple_now = false;
     let mut images_now = false;
     let mut stamp_now = false;
     let mut alt_now = false;
@@ -853,6 +854,16 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 close = go || cancel;
                 return;
             }
+            Dialog::CreateMultiple => {
+                ui.set_width(620.0);
+                let (go, cancel) = crate::create_multiple_ui::body(ui, app, &t);
+                create_multiple_now = go;
+                if cancel {
+                    app.create_multiple = Default::default();
+                }
+                close = go || cancel;
+                return;
+            }
             Dialog::PdfA => {
                 close = crate::standards_ui::body(ui, app, &t);
                 return;
@@ -1290,6 +1301,9 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     }
     if combine_now {
         app.combine_staged();
+    }
+    if create_multiple_now {
+        app.finish_create_multiple();
     }
     if images_now {
         app.finish_image_import();

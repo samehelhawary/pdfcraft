@@ -25,6 +25,7 @@ pub mod comments;
 mod comments_panel;
 mod compare_ui;
 pub mod control;
+mod create_multiple_ui;
 mod create_ui;
 mod credits;
 mod crop;
@@ -180,6 +181,7 @@ pub enum QuickTool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     CreateImages,
+    CreateMultiple,
     Properties(PropsTab),
     About,
     Shortcuts,
@@ -429,6 +431,8 @@ pub struct PdfCraftApp {
     pub combine_draft: Vec<combine_ui::CombineFile>,
     /// Images waiting for the resolution choice (released on cancel).
     pub image_import: Option<create_ui::ImageImport>,
+    /// Create a PDF ▸ Multiple files: the files and what to make of them.
+    pub create_multiple: create_multiple_ui::CreateMultiple,
     /// The custom stamp library, and the stamp being created.
     pub custom_stamps: Vec<stamps_ui::CustomStamp>,
     pub stamp_draft: stamps_ui::StampDraft,
@@ -627,6 +631,7 @@ impl PdfCraftApp {
             space_audit: Vec::new(),
             combine_draft: Vec::new(),
             image_import: None,
+            create_multiple: Default::default(),
             custom_stamps: Vec::new(),
             stamp_draft: Default::default(),
             optimize_draft: OptimizeDraft::default(),
@@ -1195,6 +1200,7 @@ impl PdfCraftApp {
                     "advanced" => Some(Dialog::Properties(PropsTab::Advanced)),
                     "shortcuts" => Some(Dialog::Shortcuts),
                     "split" => Some(Dialog::Split),
+                    "create-multiple" => Some(Dialog::CreateMultiple),
                     "protect" => Some(Dialog::Protect),
                     "page-boxes" => Some(Dialog::PageBoxes),
                     "header-footer" => Some(Dialog::Marks(pdfcraft_engine::MarkKind::HeaderFooter)),
