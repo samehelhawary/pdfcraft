@@ -597,6 +597,73 @@ fn plus_between_pages_inserts_picked_files_there_in_order() {
     assert_eq!(texts_of(h.state(), 0), before);
 }
 
+/// A file dropped on the window, as the windowing layer hands it over.
+#[derive(Debug)]
+struct Dropped(&'static str, Vec<u8>);
+
+impl egui::DroppedFile for Dropped {
+    fn path(&self) -> &std::path::Path {
+        std::path::Path::new(self.0)
+    }
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        Ok(self.1.clone())
+    }
+}
+
+fn drop_files(h: &mut Harness<'static, PdfCraftApp>, files: Vec<Dropped>) {
+    for f in files {
+        h.input_mut().dropped_files.push(std::sync::Arc::new(f));
+    }
+}
+
+#[test]
+fn files_dropped_between_pages_are_inserted_there() {
+    let mut h = organize(3);
+    // Over the gap between pages 1 and 2.
+    let gap = h.get_by_label("Insert a file before page 2").rect().center();
+    h.hover_at(gap + egui::vec2(0.0, 40.0));
+    h.run_steps(2);
+    drop_files(&mut h, vec![Dropped("extra.pdf", fixture(2)), Dropped("note.txt", b"a note".to_vec())]);
+    h.run_steps(4);
+    assert_eq!(h.state().views.len(), 1, "dropped files are not opened as documents");
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 1", "Page 2", "a note", "Page 2", "Page 3"]);
+    assert_eq!(picked(&h), [1, 2, 3], "the inserted pages are selected");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 2", "Page 3"]);
+    // Right of the last page: the end.
+    let last = h.get_by_label("Page 3").rect();
+    h.hover_at(last.center() + egui::vec2(last.width() * 0.4, 0.0));
+    h.run_steps(2);
+    drop_files(&mut h, vec![Dropped("note.txt", b"a note".to_vec())]);
+    h.run_steps(4);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 2", "Page 3", "a note"]);
+}
+
+#[test]
+fn files_dropped_before_the_pointer_is_known_wait_for_it() {
+    // Some platforms don't report the pointer while files are dragged over the window.
+    let mut h = organize(2);
+    drop_files(&mut h, vec![Dropped("note.txt", b"a note".to_vec())]);
+    h.run_steps(1);
+    assert_eq!(texts_of(h.state(), 0).len(), 2, "not placed yet");
+    let gap = h.get_by_label("Insert a file before page 2").rect().center();
+    h.hover_at(gap + egui::vec2(0.0, 40.0));
+    h.run_steps(3);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "a note", "Page 2"]);
+}
+
+#[test]
+fn files_dropped_outside_the_page_grid_still_open_as_documents() {
+    let mut h = harness(2, |_| {});
+    drop_files(&mut h, vec![Dropped("other.pdf", fixture(1))]);
+    h.run_steps(3);
+    assert_eq!(h.state().views.len(), 2);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 2"]);
+}
+
 #[test]
 fn save_pages_writes_what_the_grid_shows() {
     let path = temp_path("grid-save.pdf");

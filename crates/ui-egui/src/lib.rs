@@ -178,6 +178,14 @@ pub enum QuickTool {
     Snapshot,
 }
 
+/// Files dropped on a document's page grid.
+struct GridDrop {
+    doc: pdfcraft_engine::DocId,
+    files: Vec<(String, Vec<u8>)>,
+    /// When to stop waiting for the pointer (egui time, seconds).
+    deadline: f64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     CreateImages,
@@ -437,6 +445,8 @@ pub struct PdfCraftApp {
     pub optimize_draft: OptimizeDraft,
     /// Pages copied or cut in Organize Pages, ready to paste (into any document).
     pub page_clipboard: Option<PageClip>,
+    /// Files dropped on the page grid, waiting for the pointer to say which gap they go to.
+    grid_drop: Option<GridDrop>,
     /// The last snapshot (width, height, RGBA); `system_clipboard` also puts it on the
     /// system clipboard (tests turn that off).
     pub last_snapshot: Option<(u32, u32, Vec<u8>)>,
@@ -632,6 +642,7 @@ impl PdfCraftApp {
             stamp_draft: Default::default(),
             optimize_draft: OptimizeDraft::default(),
             page_clipboard: None,
+            grid_drop: None,
             last_snapshot: None,
             system_clipboard: true,
             attach_override: None,
@@ -798,6 +809,54 @@ impl PdfCraftApp {
                 }
             }
             Err(e) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &e.to_string())]),
+        }
+    }
+
+    /// The document whose page grid is showing and may take pages, if any.
+    fn grid_target(&self) -> Option<pdfcraft_engine::DocId> {
+        let view = self.active.and_then(|i| self.views.get(i)).filter(|v| v.organize)?;
+        (self.dialog.is_none() && self.session.get(view.id)?.allows_assembly()).then_some(view.id)
+    }
+
+    /// Files dropped while the page grid shows are inserted into it rather than opened: they
+    /// are kept until [`Self::finish_grid_drop`] knows the gap. Returns the files not taken.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn drop_on_grid(&mut self, dropped: Vec<egui::DroppedFileHandle>, ctx: &egui::Context) -> Vec<egui::DroppedFileHandle> {
+        let Some(id) = self.grid_target().filter(|_| !dropped.is_empty()) else { return dropped };
+        let mut files = Vec::new();
+        for f in dropped.iter().take(pdfcraft_engine::MAX_CREATE_FILES) {
+            let name = f.path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "dropped.pdf".into());
+            let bytes = if f.path().is_absolute() { std::fs::read(f.path()).map_err(|e| e.to_string()) } else { f.bytes() };
+            match bytes {
+                Ok(b) => files.push((name, b)),
+                Err(e) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &e)]),
+            }
+        }
+        if !files.is_empty() {
+            // The pointer's place often arrives only with the first move after the drop.
+            self.grid_drop = Some(GridDrop { doc: id, files, deadline: ctx.input(|i| i.time) + 1.0 });
+        }
+        Vec::new()
+    }
+
+    /// Insert files dropped on the page grid at the gap under the pointer, or at the end when
+    /// the pointer hasn't shown up in time.
+    fn finish_grid_drop(&mut self, ctx: &egui::Context) {
+        let Some(GridDrop { doc: id, deadline, .. }) = &self.grid_drop else { return };
+        let (id, deadline) = (*id, *deadline);
+        if self.grid_target() != Some(id) {
+            self.grid_drop = None;
+            return self.notify_tr("The document changed while you were choosing a file, so nothing was changed.");
+        }
+        let Some(view) = self.active.and_then(|i| self.views.get_mut(i)) else { return };
+        let gap = match view.grid_gap {
+            Some(gap) => gap,
+            None if ctx.input(|i| i.time) >= deadline => usize::MAX,
+            None => return ctx.request_repaint(),
+        };
+        view.insert_at = Some(gap);
+        if let Some(drop) = self.grid_drop.take() {
+            self.insert_files(drop.files);
         }
     }
 
@@ -1449,9 +1508,12 @@ impl eframe::App for PdfCraftApp {
         }
         self.sync_theme(ctx);
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        let dropped = self.drop_on_grid(dropped, ctx);
         for f in dropped {
             self.open_dropped(f, ctx);
         }
+        self.finish_grid_drop(ctx);
         let arrived: Vec<(String, Vec<u8>)> = self.inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
         for (name, bytes) in arrived {
             if let Err(e) = self.open_bytes(&name, None, bytes) {

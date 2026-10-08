@@ -280,6 +280,9 @@ pub struct DocView {
     /// The grid gap the next inserted files go to (set by a "+" between pages); otherwise they
     /// go after the selection.
     pub insert_at: Option<usize>,
+    /// The page-grid gap under the pointer this frame (where dropped files go), when it can
+    /// take pages.
+    pub grid_gap: Option<usize>,
 }
 
 /// Organize-toolbar actions that need the app (file pickers, new tabs, dialogs).
@@ -375,6 +378,7 @@ impl DocView {
             block_drag: None,
             pending_action: None,
             insert_at: None,
+            grid_gap: None,
             comments: Default::default(),
             measure: Default::default(),
             forms: Default::default(),
@@ -2738,6 +2742,20 @@ fn organize_grid(
             view.org_drag = None;
         }
     });
+    // Files dragged in from outside go to the gap under the pointer. Some platforms don't say
+    // where the pointer is until the files are dropped; then the whole grid is the target.
+    let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| viewport.contains(*p));
+    view.grid_gap = pointer.filter(|_| editable && view.org_drag.is_none()).and_then(|p| drop_gap(&cells, p));
+    if editable && ui.input(|i| !i.raw.hovered_files.is_empty()) {
+        let painter = ui.painter().with_clip_rect(viewport);
+        painter.rect_stroke(viewport.shrink(2.0), CornerRadius::same(6), Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+        if let Some(gap) = view.grid_gap {
+            let at = cells.iter().find(|(i, _)| *i == gap).map(|(_, r)| (r.left() + 3.0, r.y_range()));
+            if let Some((x, row)) = at.or(cells.last().map(|(_, r)| (r.right() - 3.0, r.y_range()))) {
+                painter.line_segment([pos2(x, row.min + 10.0), pos2(x, row.max - 10.0)], Stroke::new(3.0, t.accent));
+            }
+        }
+    }
     view.auto_scroll.paint(ui, viewport);
     let s = THUMB_W * ppp / info.pages.iter().map(|p| p.width).fold(1.0, f32::max);
     let queue: Vec<RenderRequest> = (0..info.pages.len())
