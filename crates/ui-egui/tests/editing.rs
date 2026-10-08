@@ -556,6 +556,65 @@ fn inserting_a_file_goes_after_the_selection_and_undoes() {
 }
 
 #[test]
+fn plus_between_pages_inserts_picked_files_there_in_order() {
+    let dir = temp_path("insert-gap");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (extra, note) = (dir.join("extra.pdf"), dir.join("note.txt"));
+    std::fs::write(&extra, fixture(2)).unwrap();
+    std::fs::write(&note, "a note").unwrap();
+    let mut h = organize(3);
+    // Page 3 is selected, yet the files go where the "+" is: between pages 1 and 2.
+    h.get_by_label("Page 3").click();
+    h.run_steps(2);
+    h.state_mut().pick_override = Some(vec![extra.to_string_lossy().into_owned(), note.to_string_lossy().into_owned()]);
+    h.get_by_label("Insert a file before page 2").click();
+    h.run_steps(4);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 1", "Page 2", "a note", "Page 2", "Page 3"]);
+    assert_eq!(picked(&h), [1, 2, 3], "the inserted pages are selected");
+    // Each file is one undo step.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    assert_eq!(texts_of(h.state(), 0), ["Page 1", "Page 2", "Page 3"]);
+    // Both ends.
+    h.state_mut().pick_override = Some(vec![note.to_string_lossy().into_owned()]);
+    h.get_by_label("Insert a file before page 1").click();
+    h.run_steps(4);
+    h.get_by_label("Insert a file at the end").click();
+    h.run_steps(4);
+    assert_eq!(texts_of(h.state(), 0), ["a note", "Page 1", "Page 2", "Page 3", "a note"]);
+    // The toolbar button still inserts after the selection, not at the last "+" used.
+    h.get_by_label("Page 2").click();
+    h.run_steps(2);
+    h.get_by_label("Insert pages from a file…").click();
+    h.run_steps(4);
+    assert_eq!(texts_of(h.state(), 0), ["a note", "Page 1", "a note", "Page 2", "Page 3", "a note"]);
+    // A file that can't be converted changes nothing.
+    let before = texts_of(h.state(), 0);
+    h.state_mut().use_files(pdfcraft_ui_egui::FilePurpose::InsertPages, vec![("report.docx".into(), b"PK\x03\x04".to_vec())]);
+    h.run_steps(2);
+    assert_eq!(texts_of(h.state(), 0), before);
+}
+
+#[test]
+fn save_pages_writes_what_the_grid_shows() {
+    let path = temp_path("grid-save.pdf");
+    let mut h = organize(3);
+    h.get_by_label("Page 2").click();
+    h.run_steps(2);
+    h.key_press(Key::Delete);
+    h.run_steps(3);
+    h.state_mut().save_override = Some(path.to_string_lossy().into_owned());
+    h.get_by_label("Save pages").click();
+    h.run_steps(4);
+    assert!(!dirty(&h));
+    let mut app = PdfCraftApp::new();
+    app.open_bytes("saved.pdf", None, std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(texts_of(&app, 0), ["Page 1", "Page 3"]);
+}
+
+#[test]
 fn split_dialog_writes_one_file_per_part() {
     let dir = temp_path("split-count");
     let _ = std::fs::remove_dir_all(&dir);
@@ -654,6 +713,7 @@ fn restricted_documents_show_a_notice_and_block_page_changes() {
     h.key_press(Key::Delete);
     h.run_steps(3);
     assert_eq!(texts_of(h.state(), 0).len(), 2, "page changes are blocked");
+    assert_eq!(h.query_all_by_label_contains("Insert a file").count(), 0, "nothing to insert into");
     assert!(!dirty(&h));
     h.get_by_label("Security settings").click();
     h.run_steps(3);

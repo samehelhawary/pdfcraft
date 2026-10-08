@@ -21,10 +21,10 @@ pub enum FilePurpose {
     CreateMultiple,
 }
 
-/// The picker for `purpose`: PDFs, and for Create also what it converts.
+/// The picker for `purpose`: PDFs, and for Create and Insert also what they convert.
 fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
     let dialog = rfd::AsyncFileDialog::new();
-    if purpose != FilePurpose::CreateMultiple {
+    if !matches!(purpose, FilePurpose::CreateMultiple | FilePurpose::InsertPages) {
         return dialog.add_filter("PDF", &["pdf"]);
     }
     let all: Vec<&str> = std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).collect();
@@ -152,13 +152,22 @@ impl PdfCraftApp {
         self.pick_files(FilePurpose::Ocr, true);
     }
 
-    /// Ask for a PDF whose pages to insert after the selection (Organize ▸ Insert from file).
+    /// Ask for files whose pages to insert after the selection (Organize ▸ Insert from file).
     pub fn insert_from_file_dialog(&mut self) {
-        if self.active.is_none() {
+        self.insert_from_file_at(None);
+    }
+
+    /// Ask for files to insert at grid gap `at` (0 = before the first page), or after the
+    /// selection.
+    pub(crate) fn insert_from_file_at(&mut self, at: Option<usize>) {
+        let Some(i) = self.active else {
             self.notify_tr("Open a document first");
             return;
+        };
+        if let Some(v) = self.views.get_mut(i) {
+            v.insert_at = at;
         }
-        self.pick_files(FilePurpose::InsertPages, false);
+        self.pick_files(FilePurpose::InsertPages, true);
     }
 
     fn pick_files(&mut self, purpose: FilePurpose, multiple: bool) {
@@ -254,11 +263,7 @@ impl PdfCraftApp {
     pub fn use_files(&mut self, purpose: FilePurpose, files: Vec<(String, Vec<u8>)>) {
         match purpose {
             FilePurpose::Combine => self.stage_combine(files),
-            FilePurpose::InsertPages => {
-                for (name, bytes) in files {
-                    self.insert_pages_from(&name, bytes);
-                }
-            }
+            FilePurpose::InsertPages => self.insert_files(files),
             FilePurpose::ReplacePages => {
                 if let Some((name, bytes)) = files.into_iter().next() {
                     self.start_replace(name, bytes);
@@ -295,11 +300,37 @@ impl PdfCraftApp {
         self.dialog = Some(crate::Dialog::ReplacePages);
     }
 
-    /// Insert all pages of a PDF after the organize selection (or the current page).
+    /// Insert all pages of a file after the organize selection (or the current page).
     pub fn insert_pages_from(&mut self, name: &str, bytes: Vec<u8>) {
-        let Some(i) = self.active else { return };
-        let at = self.views[i].target_pages().last().map(|p| p + 1).unwrap_or(0);
-        self.apply_edit(Edit::InsertPagesFrom { name: name.to_string(), bytes: Arc::new(bytes), pages: None, at });
+        self.insert_files(vec![(name.to_string(), bytes)]);
+    }
+
+    /// Insert the pages of `files` (PDFs, images, text), in order, at the gap a "+" in the page
+    /// grid chose, or else after the selection (or the current page); then select them.
+    pub fn insert_files(&mut self, files: Vec<(String, Vec<u8>)>) {
+        let Some(view) = self.active.and_then(|i| self.views.get_mut(i)) else { return };
+        let (id, chosen) = (view.id, view.insert_at.take());
+        let after = view.target_pages().last().map_or(0, |p| p + 1);
+        let count = self.session.get(id).map_or(0, |d| d.info.pages.len());
+        let start = chosen.unwrap_or(after).min(count);
+        let mut at = start;
+        for (name, bytes) in files {
+            let converted =
+                self.session.convert_to_pdf(&name, &Arc::new(bytes)).and_then(|(_, pdf)| Ok((self.session.page_count_of(&name, &pdf)?, pdf)));
+            match converted {
+                Ok((pages, bytes)) => {
+                    if self.apply_edit(Edit::InsertPagesFrom { name, bytes, pages: None, at }) {
+                        at = at.saturating_add(pages);
+                    }
+                }
+                Err(e) => self.notify_error(e),
+            }
+        }
+        if at > start
+            && let Some(view) = self.active.and_then(|i| self.views.get_mut(i))
+        {
+            view.select_pages(&(start..at).collect::<Vec<_>>());
+        }
     }
 
     /// Copy the selected pages (or the current page) into a new unsaved document tab.

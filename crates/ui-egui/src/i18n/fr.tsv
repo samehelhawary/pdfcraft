@@ -1932,18 +1932,13 @@
 	Lines +/−	Lignes +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{bin_added} / −{bin_deleted} binary assets, {first} – {last}	@{login} : {prs} PR, {commits} commits, +{added} / −{deleted} lignes (Δ {delta}), +{bin_added} / −{bin_deleted} fichiers binaires, {first} – {last}
 	Set layer visibility	Définir la visibilité des calques
-	Create PDF from multiple files	Créer un PDF à partir de plusieurs fichiers
-	Combine into one PDF	Combiner en un seul PDF
-	Create a separate PDF for each file	Créer un PDF distinct pour chaque fichier
-	Each image or text file becomes its own PDF. Files that are already PDFs are skipped.	Chaque image ou fichier texte devient un PDF distinct. Les fichiers qui sont déjà des PDF sont ignorés.
-	Add at least one file	Ajoutez au moins un fichier
 	Created a PDF from {n} files	PDF créé à partir de {n} fichiers
-	Choose a folder for the new PDFs	Choisir un dossier pour les nouveaux PDF
-	Created {n} PDFs	{n} PDF créés
 	PDF, images and text	PDF, images et texte
-	You can add up to {n} files at once	Vous pouvez ajouter jusqu'à {n} fichiers à la fois
-	Couldn't add {e}	Impossible d'ajouter {e}
-	Those files are already PDFs	Ces fichiers sont déjà des PDF
-	Created 1 PDF in {dir}	1 PDF créé dans {dir}
-	Created {n} PDFs in {dir}	{n} PDF créés dans {dir}
-	Created {n} PDFs in {dir}; failed: {failed}	{n} PDF créés dans {dir} ; échecs : {failed}
+	Insert a file before page {label}	Insérer un fichier avant la page {label}
+	Insert a file at the end	Insérer un fichier à la fin
+	Save pages	Enregistrer les pages
+	Save these pages as one PDF	Enregistrer ces pages dans un seul PDF
+	No changes to save	Aucune modification à enregistrer
+	Created a PDF from {n} files; left out: {names}	PDF créé à partir de {n} fichiers ; ignorés : {names}
+	Created a PDF from the first {n} files	PDF créé à partir des {n} premiers fichiers
+	None of those files can be made into a PDF; use PDFs, images or .txt files	Aucun de ces fichiers ne peut être converti en PDF ; utilisez des PDF, des images ou des fichiers .txt

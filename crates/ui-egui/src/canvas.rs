@@ -277,12 +277,19 @@ pub struct DocView {
     pub fill_text: Option<crate::fill_sign::TypeBox>,
     /// A non-edit action requested by the organize toolbar, handled by the app.
     pub pending_action: Option<ViewAction>,
+    /// The grid gap the next inserted files go to (set by a "+" between pages); otherwise they
+    /// go after the selection.
+    pub insert_at: Option<usize>,
 }
 
 /// Organize-toolbar actions that need the app (file pickers, new tabs, dialogs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewAction {
     InsertFromFile,
+    /// Insert files at a gap of the page grid (0 = before the first page).
+    InsertFromFileAt(usize),
+    /// Save the document as the grid shows it.
+    Save,
     Extract,
     Split,
     /// Copy the selected pages (Cut also deletes them).
@@ -367,6 +374,7 @@ impl DocView {
             image_selection: None,
             block_drag: None,
             pending_action: None,
+            insert_at: None,
             comments: Default::default(),
             measure: Default::default(),
             forms: Default::default(),
@@ -1147,7 +1155,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     // No dialog, close prompt or palette over the page: only then does page input count.
     let unobstructed = app.dialog.is_none() && app.close_request.is_none() && !app.palette_open;
     if view.organize {
-        organize_grid(view, info, &doc.renderer, doc.allows_assembly(), unobstructed, ui, &t);
+        organize_grid(view, info, &doc.renderer, doc.allows_assembly(), doc.dirty, unobstructed, ui, &t);
         return;
     }
 
@@ -2435,7 +2443,7 @@ fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
 }
 
 /// The organize toolbar: page operations on the selection (Acrobat's Organize Pages bar).
-fn organize_toolbar(view: &mut DocView, info: &DocInfo, editable: bool, ui: &mut egui::Ui, t: &Tokens) {
+fn organize_toolbar(view: &mut DocView, info: &DocInfo, editable: bool, dirty: bool, ui: &mut egui::Ui, t: &Tokens) {
     let targets = view.target_pages();
     let n = info.pages.len();
     let (first, last) = (targets.first().copied().unwrap_or(0), targets.last().copied().unwrap_or(0));
@@ -2509,6 +2517,11 @@ fn organize_toolbar(view: &mut DocView, info: &DocInfo, editable: bool, ui: &mut
                 if widgets::ghost_button(ui, "x", tl!("Close")).on_hover_text(tl!("Back to the document")).clicked() {
                     view.organize = false;
                 }
+                // What the grid shows is what is saved.
+                let save = ui.add_enabled_ui(dirty, |ui| widgets::pill_button(ui, tl!("Save pages"), true)).inner;
+                if save.on_hover_text(tl!("Save these pages as one PDF")).on_disabled_hover_text(tl!("No changes to save")).clicked() {
+                    view.pending_action = Some(ViewAction::Save);
+                }
             });
         });
     });
@@ -2549,11 +2562,36 @@ fn drop_gap(cells: &[(usize, Rect)], p: Pos2) -> Option<usize> {
     Some(if p.x < r.center().x { *i } else { i + 1 })
 }
 
-fn organize_grid(view: &mut DocView, info: &DocInfo, pool: &RenderPool, editable: bool, auto_scroll_enabled: bool, ui: &mut egui::Ui, t: &Tokens) {
+/// A "+" on a gap of the page grid: insert files there. Returns whether it was clicked.
+fn gap_button(ui: &mut egui::Ui, gap: usize, at: Pos2, height: f32, label: String, t: &Tokens) -> bool {
+    let resp = ui.interact(Rect::from_center_size(at, Vec2::splat(22.0)), ui.id().with(("org-gap", gap)), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
+    let hot = resp.hovered();
+    if hot {
+        ui.painter().line_segment([pos2(at.x, at.y - height / 2.0), pos2(at.x, at.y + height / 2.0)], Stroke::new(3.0, t.accent));
+    }
+    ui.painter().circle(at, 9.0, if hot { t.accent } else { t.chrome }, Stroke::new(1.0, if hot { t.accent } else { t.border }));
+    let ink = Stroke::new(1.5, if hot { Color32::WHITE } else { t.text_muted });
+    ui.painter().line_segment([at - vec2(4.0, 0.0), at + vec2(4.0, 0.0)], ink);
+    ui.painter().line_segment([at - vec2(0.0, 4.0), at + vec2(0.0, 4.0)], ink);
+    resp.on_hover_text(label).clicked()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn organize_grid(
+    view: &mut DocView,
+    info: &DocInfo,
+    pool: &RenderPool,
+    editable: bool,
+    dirty: bool,
+    auto_scroll_enabled: bool,
+    ui: &mut egui::Ui,
+    t: &Tokens,
+) {
     let ppp = ui.ctx().pixels_per_point();
     let cell = vec2(190.0, 250.0);
     let mut open_page = None;
-    organize_toolbar(view, info, editable, ui, t);
+    organize_toolbar(view, info, editable, dirty, ui, t);
     let viewport = ui.available_rect_before_wrap();
     view.viewport_screen = viewport;
     let auto_delta = if auto_scroll_enabled {
@@ -2645,6 +2683,25 @@ fn organize_grid(view: &mut DocView, info: &DocInfo, pool: &RenderPool, editable
                         ui.close();
                     }
                 });
+            }
+        }
+        // Between pages (and at both ends): insert files right there.
+        if editable && !middle_gesture && view.org_drag.is_none() {
+            let mid = |r: &Rect| r.top() + 16.0 + (cell.y - 56.0) / 2.0;
+            for (i, c) in &cells {
+                let label = info
+                    .pages
+                    .get(*i)
+                    .map(|p| crate::i18n::fmt(tl!("Insert a file before page {label}"), &[("label", &p.label)]))
+                    .unwrap_or_default();
+                if gap_button(ui, *i, pos2(c.left(), mid(c)), cell.y - 56.0, label, t) {
+                    view.pending_action = Some(ViewAction::InsertFromFileAt(*i));
+                }
+            }
+            if let Some((i, c)) = cells.last()
+                && gap_button(ui, i + 1, pos2(c.right(), mid(c)), cell.y - 56.0, tl!("Insert a file at the end").to_string(), t)
+            {
+                view.pending_action = Some(ViewAction::InsertFromFileAt(i + 1));
             }
         }
         // While dragging: the gap the pages would go to, drawn as a bar.

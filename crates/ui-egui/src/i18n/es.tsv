@@ -1898,18 +1898,13 @@
 	Default page display	Presentación de página predeterminada
 	Default zoom	Zoom predeterminado
 	Used when a PDF doesn't ask for a layout or zoom. Continuous scrolling never snaps between pages.	Se usa cuando un PDF no pide una presentación ni un zoom. El desplazamiento continuo nunca salta de página en página.
-	Create PDF from multiple files	Crear PDF a partir de varios archivos
-	Combine into one PDF	Combinar en un solo PDF
-	Create a separate PDF for each file	Crear un PDF aparte para cada archivo
-	Each image or text file becomes its own PDF. Files that are already PDFs are skipped.	Cada imagen o archivo de texto se convierte en su propio PDF. Los archivos que ya son PDF se omiten.
-	Add at least one file	Añada al menos un archivo
 	Created a PDF from {n} files	Se creó un PDF a partir de {n} archivos
-	Choose a folder for the new PDFs	Elija una carpeta para los nuevos PDF
-	Created {n} PDFs	Se crearon {n} PDF
 	PDF, images and text	PDF, imágenes y texto
-	You can add up to {n} files at once	Puede añadir hasta {n} archivos a la vez
-	Couldn't add {e}	No se pudo añadir {e}
-	Those files are already PDFs	Esos archivos ya son PDF
-	Created 1 PDF in {dir}	Se creó 1 PDF en {dir}
-	Created {n} PDFs in {dir}	Se crearon {n} PDF en {dir}
-	Created {n} PDFs in {dir}; failed: {failed}	Se crearon {n} PDF en {dir}; fallaron: {failed}
+	Insert a file before page {label}	Insertar un archivo antes de la página {label}
+	Insert a file at the end	Insertar un archivo al final
+	Save pages	Guardar páginas
+	Save these pages as one PDF	Guardar estas páginas en un solo PDF
+	No changes to save	No hay cambios que guardar
+	Created a PDF from {n} files; left out: {names}	Se creó un PDF a partir de {n} archivos; omitidos: {names}
+	Created a PDF from the first {n} files	Se creó un PDF a partir de los primeros {n} archivos
+	None of those files can be made into a PDF; use PDFs, images or .txt files	Ninguno de esos archivos se puede convertir en PDF; use archivos PDF, imágenes o .txt

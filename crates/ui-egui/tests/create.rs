@@ -144,8 +144,9 @@ fn mixed_files(app: &PdfCraftApp) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
-fn multiple_files_dialog_combines_mixed_files_in_the_listed_order() {
+fn multiple_files_open_as_one_document_in_the_page_grid() {
     use egui_kittest::{Harness, kittest::Queryable};
+    let path = std::env::temp_dir().join(format!("pdfcraft-create-multiple-{}.pdf", std::process::id()));
     let mut h = Harness::builder().with_size(egui::vec2(1000.0, 720.0)).build_eframe(|_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
@@ -153,52 +154,41 @@ fn multiple_files_dialog_combines_mixed_files_in_the_listed_order() {
         app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, files);
         app
     });
-    h.run_steps(3);
-    h.get_by_label("Create PDF from multiple files");
-    h.get_by_label("Combine into one PDF");
-    let names: Vec<&str> = h.state().create_multiple.files.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(names, ["notes.txt", "a.pdf", "photo.png"], "the Word file can't be converted and is left out");
+    h.run_steps(4);
+    {
+        let app = h.state();
+        assert_eq!(app.views.len(), 1);
+        assert!(app.views[0].organize, "the pages are shown as a grid");
+        let doc = app.session.get(app.views[0].id).unwrap();
+        assert_eq!(doc.name, "Combined.pdf");
+        assert!(doc.dirty && doc.path.is_none(), "unsaved until the user saves it");
+        assert_eq!(doc.info.pages.len(), 3, "the Word file can't be converted and is left out");
+        assert_eq!(doc.info.outline.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), ["notes", "a", "photo"]);
+    }
+    h.get_by_label_contains("left out: report.docx");
+    h.get_by_label("Insert a file before page 2");
     if let Ok(path) = std::env::var("PDFCRAFT_CREATE_MULTIPLE_SHOT") {
+        h.run_steps(20);
         h.render().unwrap().save(path).unwrap();
     }
-    // The image first.
-    h.get_all_by_label("Move up").last().unwrap().click();
+    // Remove the middle page and save what is left.
+    h.get_by_label("Page 2").click();
     h.run_steps(2);
-    h.get_all_by_label("Move up").nth(1).unwrap().click();
-    h.run_steps(2);
-    h.get_by_label("Create").click();
+    h.get_by_label("Delete pages (Delete)").click();
     h.run_steps(3);
+    h.state_mut().save_override = Some(path.to_string_lossy().into_owned());
+    h.get_by_label("Save pages").click();
+    h.run_steps(4);
     let app = h.state();
-    assert_eq!(app.views.len(), 1);
     let doc = app.session.get(app.views[0].id).unwrap();
-    assert_eq!(doc.name, "Combined.pdf");
-    assert!(doc.dirty && doc.path.is_none(), "unsaved until the user saves it");
-    assert_eq!(doc.info.pages.len(), 3);
-    assert_eq!(doc.info.outline.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), ["photo", "notes", "a"]);
-    assert!(app.create_multiple.files.is_empty());
+    assert!(!doc.dirty && doc.info.pages.len() == 2);
+    assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF-"));
 }
 
 #[test]
-fn multiple_files_become_separate_pdfs_without_overwriting() {
-    let dir = std::env::temp_dir().join(format!("pdfcraft-create-multiple-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("notes.pdf"), b"mine").unwrap();
+fn multiple_files_that_cannot_be_converted_open_nothing() {
     let mut app = PdfCraftApp::new();
-    app.export_dir_override = Some(dir.to_string_lossy().into_owned());
-    let files = mixed_files(&app);
-    app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, files);
-    app.create_multiple.separate = true;
-    app.finish_create_multiple();
-    assert_eq!(std::fs::read(dir.join("notes.pdf")).unwrap(), b"mine", "an existing file is kept");
-    assert!(std::fs::read(dir.join("notes (2).pdf")).unwrap().starts_with(b"%PDF-"));
-    assert!(std::fs::read(dir.join("photo.pdf")).unwrap().starts_with(b"%PDF-"));
-    assert!(!dir.join("a.pdf").exists(), "a file that is already a PDF is skipped");
-    assert!(app.views.is_empty() && app.create_multiple.files.is_empty());
-    // Only PDFs: nothing to make, and nothing is written.
-    let pdf = app.session.create_from_text("a", "x").unwrap().to_vec();
-    app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, vec![("a.pdf".into(), pdf)]);
-    app.create_multiple.separate = true;
-    app.finish_create_multiple();
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);
+    app.use_files(pdfcraft_ui_egui::FilePurpose::CreateMultiple, vec![("report.docx".into(), b"PK\x03\x04".to_vec())]);
+    assert!(app.views.is_empty());
+    assert!(app.toast.is_some());
 }

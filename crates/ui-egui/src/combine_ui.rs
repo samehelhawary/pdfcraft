@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use egui::{Align, Layout};
-use pdfcraft_engine::SourceKind;
 
 use crate::theme::{self, Tokens};
 use crate::{Dialog, PdfCraftApp, icons, widgets};
@@ -16,8 +15,6 @@ pub struct CombineFile {
     pub pages: usize,
     /// The pages to take ("" = all).
     pub range: String,
-    /// What the file was before Create converted it (`bytes` is always a PDF).
-    pub kind: SourceKind,
 }
 
 enum RowAction {
@@ -26,31 +23,30 @@ enum RowAction {
     Remove(usize),
 }
 
-/// The files, in order, each with move up, move down and remove; `ranges` adds the Pages column.
-pub(crate) fn file_list(ui: &mut egui::Ui, files: &mut Vec<CombineFile>, t: &Tokens, id: &str, ranges: bool) {
+pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (bool, bool) {
+    ui.label(egui::RichText::new(tl!("Combine files")).font(theme::semibold(18.0)));
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(tl!("Files are combined in this order. Leave Pages empty to take every page.")).small().color(t.text_faint));
+    ui.add_space(8.0);
     let mut action = None;
-    let n = files.len();
+    let n = app.combine_draft.len();
     egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
-        egui::Grid::new(id).num_columns(4).min_col_width(40.0).spacing([10.0, 6.0]).striped(true).show(ui, |ui| {
+        egui::Grid::new("combine-files").num_columns(4).min_col_width(40.0).spacing([10.0, 6.0]).striped(true).show(ui, |ui| {
             ui.label(egui::RichText::new(tl!("File")).color(t.text_muted));
-            ui.label(egui::RichText::new(if ranges { tl!("Pages") } else { "" }).color(t.text_muted));
+            ui.label(egui::RichText::new(tl!("Pages")).color(t.text_muted));
             ui.label("");
             ui.label("");
             ui.end_row();
-            for (i, f) in files.iter_mut().enumerate() {
+            for (i, f) in app.combine_draft.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.add(icons::image(if f.kind == SourceKind::Image { "image" } else { "file-text" }, 16.0, t.icon));
+                    ui.add(icons::image("file-text", 16.0, t.icon));
                     ui.add(egui::Label::new(&f.name).truncate());
                     let count =
                         if f.pages == 1 { tl!("1 page").to_string() } else { crate::i18n::fmt(tl!("{n} pages"), &[("n", &f.pages.to_string())]) };
                     ui.label(egui::RichText::new(count).small().color(t.text_faint));
                 });
-                if ranges {
-                    ui.add_sized([120.0, 22.0], egui::TextEdit::singleline(&mut f.range).hint_text(tl!("All pages")))
-                        .on_hover_text(crate::i18n::fmt(tl!("Pages of {name} to combine, e.g. 1-3, 6"), &[("name", &f.name)]));
-                } else {
-                    ui.label("");
-                }
+                ui.add_sized([120.0, 22.0], egui::TextEdit::singleline(&mut f.range).hint_text(tl!("All pages")))
+                    .on_hover_text(crate::i18n::fmt(tl!("Pages of {name} to combine, e.g. 1-3, 6"), &[("name", &f.name)]));
                 ui.horizontal(|ui| {
                     if ui.add_enabled_ui(i > 0, |ui| icons::button(ui, "chevron-up", 24.0, false, tl!("Move up"))).inner.clicked() {
                         action = Some(RowAction::Up(i));
@@ -66,23 +62,14 @@ pub(crate) fn file_list(ui: &mut egui::Ui, files: &mut Vec<CombineFile>, t: &Tok
             }
         });
     });
-    // The buttons are only enabled where the neighbour exists.
     match action {
-        Some(RowAction::Up(i)) if i > 0 && i < n => files.swap(i, i - 1),
-        Some(RowAction::Down(i)) if i + 1 < n => files.swap(i, i + 1),
-        Some(RowAction::Remove(i)) if i < n => {
-            files.remove(i);
+        Some(RowAction::Up(i)) => app.combine_draft.swap(i, i - 1),
+        Some(RowAction::Down(i)) => app.combine_draft.swap(i, i + 1),
+        Some(RowAction::Remove(i)) => {
+            app.combine_draft.remove(i);
         }
-        _ => {}
+        None => {}
     }
-}
-
-pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (bool, bool) {
-    ui.label(egui::RichText::new(tl!("Combine files")).font(theme::semibold(18.0)));
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new(tl!("Files are combined in this order. Leave Pages empty to take every page.")).small().color(t.text_faint));
-    ui.add_space(8.0);
-    file_list(ui, &mut app.combine_draft, t, "combine-files", true);
     ui.add_space(10.0);
     let (mut go, mut cancel) = (false, false);
     ui.horizontal(|ui| {
@@ -113,9 +100,7 @@ impl PdfCraftApp {
         for (name, bytes) in files {
             let bytes = Arc::new(bytes);
             match pdfcraft_render::inspect(bytes.clone(), None) {
-                Ok(info) => {
-                    self.combine_draft.push(CombineFile { name, bytes, pages: info.pages.len(), range: String::new(), kind: SourceKind::Pdf })
-                }
+                Ok(info) => self.combine_draft.push(CombineFile { name, bytes, pages: info.pages.len(), range: String::new() }),
                 Err(e) => self.notify_fmt("Couldn't add {name}: {e}", &[("name", &name), ("e", &e.to_string())]),
             }
         }
