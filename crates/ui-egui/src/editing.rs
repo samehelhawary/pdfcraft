@@ -73,12 +73,21 @@ impl PdfCraftApp {
         }
     }
 
+    /// Undo the last change: to the Combine files list while its tab shows, else the document.
     pub fn undo(&mut self) {
-        self.history_step(true);
+        if self.combine_showing() {
+            self.combine_history_step(true);
+        } else {
+            self.history_step(true);
+        }
     }
 
     pub fn redo(&mut self) {
-        self.history_step(false);
+        if self.combine_showing() {
+            self.combine_history_step(false);
+        } else {
+            self.history_step(false);
+        }
     }
 
     fn history_step(&mut self, undo: bool) {
@@ -203,12 +212,29 @@ impl PdfCraftApp {
     /// user has been told why, so the typing isn't lost and the caller can stop.
     fn apply_queued_edit(&mut self, i: usize) -> bool {
         let Some(edit) = self.views.get_mut(i).and_then(|v| v.pending_edit.take()) else { return true };
+        let signature_page = self.views.get_mut(i).and_then(|v| v.fill_signature_page.take());
         let committed = self.views.get_mut(i).and_then(|v| v.forms.committed.take());
         let typed = match (&edit, &committed) {
             (Edit::SetFieldValue { name, .. }, Some(draft)) => *name == draft.name,
             _ => false,
         };
-        if self.apply_edit(edit) || !typed {
+        if self.apply_edit(edit) {
+            if let Some(page) = signature_page
+                && let Some(view) = self.views.get_mut(i)
+            {
+                // Signature imports are a labeled batch; select their appended stamp just
+                // as AddAnnotation selects a typed or drawn signature.
+                let newest = self
+                    .session
+                    .get(view.id)
+                    .and_then(|d| d.info.annotations.iter().filter(|a| a.page == page && a.in_reply_to.is_none()).map(|a| a.index).max());
+                view.comments.selected = newest.map(|index| (page, index));
+                view.comments.reveal = true;
+                self.quick_tool = crate::QuickTool::Select;
+            }
+            return true;
+        }
+        if !typed {
             return true;
         }
         if let (Some(mut draft), Some(view)) = (committed, self.views.get_mut(i)) {

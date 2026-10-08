@@ -20,7 +20,10 @@ pub mod export;
 pub mod js;
 pub mod links;
 pub mod ocr;
+pub mod signature_image;
 pub mod xfa;
+
+pub use signature_image::SignatureImage;
 
 pub use pdfcraft_organize::{BoxSpec, PageBox, SplitBy, split_ranges};
 
@@ -1434,7 +1437,7 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         Edit::AddCustomStamp { page, rect, name, file, author } => {
             let src = mark_source(doc, file)?;
             let (sw, sh) = (src.size.0.max(1.0), src.size.1.max(1.0));
-            let rect = if (rect[2] - rect[0]).abs() < 1.0 || (rect[3] - rect[1]).abs() < 1.0 {
+            let rect = if rect[2] == rect[0] && rect[3] == rect[1] {
                 let k = (200.0 / sw.max(sh)).min(1.0);
                 let (w, h) = (sw * k, sh * k);
                 [rect[0] - w / 2.0, rect[1] - h / 2.0, rect[0] + w / 2.0, rect[1] + h / 2.0]
@@ -1737,15 +1740,50 @@ pub const MAX_CREATE_FILES: usize = 1000;
 
 /// Parse another PDF to copy pages from.
 fn open_source(name: &str, bytes: &Arc<Vec<u8>>) -> Result<pdfcraft_cos::Document, EditError> {
-    match std::panic::catch_unwind(|| pdfcraft_cos::Document::open(bytes.clone())) {
-        Ok(Ok(d)) if d.permissions().is_some_and(|p| !p.assemble()) => {
-            Err(EditError::Source(format!("{name}: its security settings don't allow copying pages")))
-        }
+    open_source_with(name, bytes, None)
+}
+
+/// [`open_source`], authenticating with `password` (user or owner) for an encrypted file.
+fn open_source_with(name: &str, bytes: &Arc<Vec<u8>>, password: Option<&str>) -> Result<pdfcraft_cos::Document, EditError> {
+    source_document(bytes, password).map_err(|p| EditError::Source(format!("{name}: {p}")))
+}
+
+/// Why a file can't be a source for Combine Files (or Insert / Replace pages).
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SourceProblem {
+    #[error("it is password-protected")]
+    Password,
+    #[error("the password is wrong")]
+    WrongPassword,
+    #[error("its security settings don't allow copying pages")]
+    NotPermitted,
+    #[error("{0}")]
+    Unreadable(String),
+}
+
+fn source_document(bytes: &Arc<Vec<u8>>, password: Option<&str>) -> Result<pdfcraft_cos::Document, SourceProblem> {
+    match std::panic::catch_unwind(|| pdfcraft_cos::Document::open_with_password(bytes.clone(), password)) {
+        Ok(Ok(d)) if d.permissions().is_some_and(|p| !p.assemble()) => Err(SourceProblem::NotPermitted),
         Ok(Ok(d)) => Ok(d),
-        Ok(Err(pdfcraft_cos::CosError::NeedsPassword)) => Err(EditError::Source(format!("{name}: it is password-protected"))),
-        Ok(Err(e)) => Err(EditError::Source(format!("{name}: {e}"))),
-        Err(_) => Err(EditError::Source(format!("{name}: the file could not be read"))),
+        Ok(Err(pdfcraft_cos::CosError::NeedsPassword)) => Err(SourceProblem::Password),
+        Ok(Err(pdfcraft_cos::CosError::WrongPassword)) => Err(SourceProblem::WrongPassword),
+        Ok(Err(e)) => Err(SourceProblem::Unreadable(e.to_string())),
+        Err(_) => Err(SourceProblem::Unreadable("the file could not be read".into())),
     }
+}
+
+/// Whether `bytes` can be combined, opened with `password` (user or owner) if given, and if not
+/// why: what Combine would refuse it for, so the Combine files list can say so before Combine
+/// is pressed. The owner (permissions) password lifts the restriction on copying pages.
+pub fn combine_source_check(bytes: &Arc<Vec<u8>>, password: Option<&str>) -> Result<(), SourceProblem> {
+    source_document(bytes, password).map(|_| ())
+}
+
+/// The number of pages of `bytes`, opened with `password` (user or owner) if given, whatever
+/// its permissions allow; `None` when it can't be read.
+pub fn source_page_count(bytes: &Arc<Vec<u8>>, password: Option<&str>) -> Option<usize> {
+    let doc = std::panic::catch_unwind(|| pdfcraft_cos::Document::open_with_password(bytes.clone(), password)).ok()?.ok()?;
+    pdfcraft_organize::page_count(&doc).ok()
 }
 
 fn plural(s: &str, n: usize) -> String {
@@ -2594,7 +2632,17 @@ impl Session {
 
     /// Combine Files with a page range per file ("1-3, 6"; `None` or empty for all pages).
     pub fn combine_ranges(&self, sources: &[CombineSource]) -> Result<Arc<Vec<u8>>, EditError> {
-        let docs = sources.iter().map(|(n, b, _)| open_source(n, b)).collect::<Result<Vec<_>, _>>()?;
+        self.combine_unlocked(sources, &[])
+    }
+
+    /// [`Self::combine_ranges`] with the password each encrypted source is opened with, by
+    /// position (missing or `None`: no password). The result is not encrypted.
+    pub fn combine_unlocked(&self, sources: &[CombineSource], passwords: &[Option<&str>]) -> Result<Arc<Vec<u8>>, EditError> {
+        let docs = sources
+            .iter()
+            .enumerate()
+            .map(|(i, (n, b, _))| open_source_with(n, b, passwords.get(i).copied().flatten()))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut pages = Vec::with_capacity(docs.len());
         for ((name, _, range), d) in sources.iter().zip(&docs) {
             let range = range.as_deref().map(str::trim).filter(|r| !r.is_empty());

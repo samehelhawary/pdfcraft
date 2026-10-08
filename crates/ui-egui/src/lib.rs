@@ -14,11 +14,20 @@ macro_rules! tl {
     };
 }
 
+/// [`tl!`] for a label whose meaning depends on where it appears ("Type" is a column and a
+/// button): a catalog can translate it under `context`, otherwise the plain translation is used.
+macro_rules! tl_ctx {
+    ($context:expr, $s:expr) => {
+        $crate::i18n::tr_ctx($crate::i18n::current(), $context, $s)
+    };
+}
+
 mod a11y_ui;
 mod actions_ui;
 pub mod canvas;
 mod chrome;
 mod combine_ui;
+pub use combine_ui::{Columns as CombineColumns, Lock as CombineLock, SortKey};
 mod commands;
 mod comment_props;
 pub mod comments;
@@ -255,8 +264,6 @@ pub enum Dialog {
     ActionWizard,
     /// Standards ▸ PDF/A.
     PdfA,
-    /// Combine files: the files, their order and pages.
-    Combine,
     /// Custom stamps ▸ Create.
     CreateStamp,
     /// Prepare for accessibility ▸ Add alternate text.
@@ -437,6 +444,10 @@ pub struct PdfCraftApp {
     pub space_audit: Vec<pdfcraft_engine::optimize::SpaceUse>,
     /// Combine files: the files staged so far.
     pub combine_draft: Vec<combine_ui::CombineFile>,
+    /// The Combine files tab: whether it is open, shown, its selection and undo history.
+    pub combine_tab: combine_ui::CombineTab,
+    /// The Combine files table's column order and widths (kept in the settings).
+    pub combine_columns: combine_ui::Columns,
     /// Images waiting for the resolution choice (released on cancel).
     pub image_import: Option<create_ui::ImageImport>,
     /// The custom stamp library, and the stamp being created.
@@ -502,8 +513,10 @@ pub struct PdfCraftApp {
     pub initials: Option<fill_sign::SavedSig>,
     /// The Create signature / initials dialog, and its typed preview.
     pub signature_draft: fill_sign::SigDraft,
-    pub(crate) signature_preview: Option<(String, egui::TextureHandle)>,
-    pub(crate) saved_signature_previews: [Option<(String, egui::TextureHandle)>; 2],
+    pub(crate) signature_preview: Option<(fill_sign::SavedSig, egui::TextureHandle)>,
+    pub(crate) saved_signature_previews: [Option<(fill_sign::SavedSig, egui::TextureHandle)>; 2],
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) signature_images: fill_sign::ImageInbox,
     /// The Comment Properties dialog's state.
     pub comment_props: Option<comment_props::PropsDraft>,
     pub field_props: Option<prepare::FieldDraft>,
@@ -638,6 +651,8 @@ impl PdfCraftApp {
             cert_viewer: None,
             space_audit: Vec::new(),
             combine_draft: Vec::new(),
+            combine_tab: Default::default(),
+            combine_columns: Default::default(),
             image_import: None,
             custom_stamps: Vec::new(),
             stamp_draft: Default::default(),
@@ -677,6 +692,8 @@ impl PdfCraftApp {
             signature_draft: Default::default(),
             signature_preview: None,
             saved_signature_previews: [None, None],
+            #[cfg(target_arch = "wasm32")]
+            signature_images: Default::default(),
             comment_props: None,
             field_props: None,
             redact_prefs: RedactPrefs::default(),
@@ -938,6 +955,17 @@ impl PdfCraftApp {
         }
     }
 
+    /// Open a file from a recent list: focus the tab already showing it, else open it (File ▸
+    /// Open Recent and the Home view's list share this).
+    pub fn open_recent(&mut self, path: &str) {
+        if let Some(i) = self.views.iter().position(|v| self.session.get(v.id).and_then(|d| d.path.as_deref()) == Some(path)) {
+            self.active = Some(i);
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.open_path(path);
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) {
         let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
@@ -1029,10 +1057,15 @@ impl PdfCraftApp {
                     self.pending_link = Some(PendingLink { url, origin });
                 }
             }
-            Err(e) => self.notify_fmt(
-                "{who} in this document tried to open an address PdfCraft won't open: {e}. Only web (http, https) and email (mailto) links open from documents.",
-                &[("who", tl!(origin.noun())), ("e", &e.to_string())],
-            ),
+            Err(e) => {
+                use pdfcraft_engine::links::BlockedLink;
+                let template = if matches!(e, BlockedLink::MailFile | BlockedLink::MailEncodedWord) {
+                    "{who} in this document tried to open an address PdfCraft won't open: {e}."
+                } else {
+                    "{who} in this document tried to open an address PdfCraft won't open: {e}. Only web (http, https) and email (mailto) links open from documents."
+                };
+                self.notify_fmt(template, &[("who", tl!(origin.noun())), ("e", &e.to_string())]);
+            }
         }
     }
 
@@ -1127,6 +1160,7 @@ impl PdfCraftApp {
             // Drawn signatures keep their original form (older settings read the same).
             "signature": match &self.signature { Some(fill_sign::SavedSig::Drawn(s)) => Some(s), _ => None },
             "signature_text": match &self.signature { Some(fill_sign::SavedSig::Typed(t)) => Some(t), _ => None },
+            "signature_image": match &self.signature { Some(s @ fill_sign::SavedSig::Image(_)) => Some(s), _ => None },
             "initials": self.initials,
             // macOS Keychain and Windows store identities are read from their OS key stores each time.
             "digital_ids": self.digital_ids.iter().filter(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")).collect::<Vec<_>>(),
@@ -1134,6 +1168,7 @@ impl PdfCraftApp {
             "custom_stamps": stamps_ui::encode(&self.custom_stamps),
             "javascript": self.session.javascript(),
             "actions": actions_ui::encode(&self.custom_actions),
+            "combine_columns": self.combine_columns.to_json(),
         })
         .to_string()
     }
@@ -1141,6 +1176,7 @@ impl PdfCraftApp {
     /// Restore state written by `persist`. Unknown or malformed data is ignored.
     pub fn restore(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return };
+        self.combine_columns = combine_ui::Columns::from_json(&v["combine_columns"]);
         if let Ok(r) = serde_json::from_value::<Vec<RecentFile>>(v["recent"].clone()) {
             // Only keep entries whose files still exist.
             #[cfg(not(target_arch = "wasm32"))]
@@ -1174,6 +1210,9 @@ impl PdfCraftApp {
         }
         if let Some(t) = v["signature_text"].as_str().filter(|t| !t.trim().is_empty()) {
             self.signature = Some(fill_sign::SavedSig::Typed(t.to_string()));
+        }
+        if let Ok(s @ fill_sign::SavedSig::Image(_)) = serde_json::from_value::<fill_sign::SavedSig>(v["signature_image"].clone()) {
+            self.signature = Some(s);
         }
         if let Ok(i) = serde_json::from_value::<fill_sign::SavedSig>(v["initials"].clone()) {
             self.initials = Some(i);
@@ -1526,11 +1565,22 @@ impl eframe::App for PdfCraftApp {
         // Before taking this frame's drop: the grid must be drawn once with the pointer where
         // the files were let go before the gap is read.
         self.finish_grid_drop(ctx);
+        // Showing a document hides the Combine files tab.
+        if self.active.is_some() {
+            self.combine_tab.focused = false;
+        }
+        #[cfg(target_arch = "wasm32")]
+        self.process_signature_images();
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         #[cfg(not(target_arch = "wasm32"))]
         let dropped = self.drop_on_grid(dropped, ctx);
         for f in dropped {
-            self.open_dropped(f, ctx);
+            // Files dropped on the Combine files tab join its list instead of opening.
+            if self.combine_showing() {
+                self.drop_into_combine(f, ctx);
+            } else {
+                self.open_dropped(f, ctx);
+            }
         }
         let arrived: Vec<(String, Vec<u8>)> = self.inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
         for (name, bytes) in arrived {
@@ -1608,7 +1658,9 @@ impl eframe::App for PdfCraftApp {
         let title = self
             .active
             .and_then(|i| self.session.get(self.views[i].id))
-            .map_or_else(|| "PdfCraft".to_owned(), |d| format!("{} — PdfCraft", d.display_name()));
+            .map(|d| d.display_name())
+            .or_else(|| self.combine_showing().then(|| tl!("Combine files").to_owned()))
+            .map_or_else(|| "PdfCraft".to_owned(), |name| format!("{name} — PdfCraft"));
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.window_title = title;
@@ -1642,6 +1694,7 @@ impl eframe::App for PdfCraftApp {
         }
         let t = theme::Tokens::get(&ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.pasteboard)).show(ui, |ui| match self.active {
+            None if self.combine_showing() => combine_ui::page(self, ui),
             None => home::show(self, ui),
             Some(i) => canvas::document_area(self, i, ui),
         });
